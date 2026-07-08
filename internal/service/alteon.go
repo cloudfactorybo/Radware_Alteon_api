@@ -82,13 +82,29 @@ func (s *AlteonService) makeRequest(ctx context.Context, endpoint string) ([]byt
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	s.log().WithField("url", url).Debug("request al alteon")
+	// Diagnóstico de sesión: si el jar ya tiene cookie para este host, el Alteon
+	// reutiliza la sesión; si no, hará login nuevo. Visible con LOG_LEVEL=debug.
+	sesion := "nueva (login basic auth)"
+	if s.httpClient.Jar != nil && len(s.httpClient.Jar.Cookies(req.URL)) > 0 {
+		sesion = "reusada (cookie)"
+	}
+	s.log().WithFields(logrus.Fields{"url": url, "sesion": sesion}).Debug("request al alteon")
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ejecutando request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Log de la cookie de sesión que devuelve el Alteon (solo cuando la setea,
+	// típicamente en el primer login). Confirma que el equipo usa cookies.
+	if cks := resp.Cookies(); len(cks) > 0 {
+		names := make([]string, 0, len(cks))
+		for _, c := range cks {
+			names = append(names, c.Name)
+		}
+		s.log().WithFields(logrus.Fields{"url": url, "set_cookie": names}).Debug("alteon devolvió cookie de sesión")
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
