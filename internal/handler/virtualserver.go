@@ -18,9 +18,19 @@ func NewVirtualServerHandler(svc *service.MultiAlteonService, logger *logrus.Log
 	return &VirtualServerHandler{service: svc, logger: logger}
 }
 
+// GetVirtualServers devuelve los virtual servers SIN el detalle de real servers
+// (más liviano: no consulta stats ni info del real server por cada servicio).
 func (h *VirtualServerHandler) GetVirtualServers(w http.ResponseWriter, r *http.Request) {
 	indexes := parseVServerFilter(r)
-	results, errs := h.service.GetAllVirtualServers(r.Context(), indexes)
+	results, errs := h.service.GetAllVirtualServers(r.Context(), indexes, false)
+	writeAggregated(w, results, errs, len(results) == 0)
+}
+
+// GetRealServers devuelve lo mismo que GetVirtualServers pero CON el detalle
+// completo de real servers (real_server en cada servicio). Es más pesado.
+func (h *VirtualServerHandler) GetRealServers(w http.ResponseWriter, r *http.Request) {
+	indexes := parseVServerFilter(r)
+	results, errs := h.service.GetAllVirtualServers(r.Context(), indexes, true)
 	writeAggregated(w, results, errs, len(results) == 0)
 }
 

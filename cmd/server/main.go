@@ -118,6 +118,7 @@ func main() {
 	v1.HandleFunc("/system", systemHandler.GetSystemInfo).Methods(http.MethodGet)
 	v1.HandleFunc("/licenses", licenseHandler.GetLicenses).Methods(http.MethodGet)
 	v1.HandleFunc("/virtualservers", vserverHandler.GetVirtualServers).Methods(http.MethodGet)
+	v1.HandleFunc("/realservers", vserverHandler.GetRealServers).Methods(http.MethodGet)
 	v1.HandleFunc("/monitoring", monitoringHandler.GetMonitoring).Methods(http.MethodGet)
 	v1.HandleFunc("/servicemap", serviceMapHandler.GetServiceMap).Methods(http.MethodGet)
 	v1.HandleFunc("/gateways", gatewayHandler.GetGateways).Methods(http.MethodGet)

@@ -208,7 +208,7 @@ func (s *AlteonService) GetLicenses(ctx context.Context) (*models.LicenseRespons
 // CPU del Alteon: cada vserver dispara N+1 requests anidados (servicios +
 // stats + info de real server), así que pedir solo los necesarios reduce
 // drásticamente la carga sobre el equipo.
-func (s *AlteonService) GetVirtualServers(ctx context.Context, indexes []string) (*models.VirtualServersResponse, error) {
+func (s *AlteonService) GetVirtualServers(ctx context.Context, indexes []string, withRealServers bool) (*models.VirtualServersResponse, error) {
 	vserverEndpoint := "/config/SlbStatEnhVServerTable?count=2048&props=Index,SessionsPerSec,OctetsPerSec,CurrSessions,TotalSessions,HighestSessions,HCOctets"
 	vserverBody, err := s.makeRequest(ctx, vserverEndpoint)
 	if err != nil {
@@ -263,7 +263,7 @@ func (s *AlteonService) GetVirtualServers(ctx context.Context, indexes []string)
 			wg.Add(1)
 			go func(idx int, vs models.SlbStatEnhVServer) {
 				defer wg.Done()
-				virtualServers[idx] = s.buildVirtualServer(ctx, vs)
+				virtualServers[idx] = s.buildVirtualServer(ctx, vs, withRealServers)
 			}(i, selected[i])
 		}
 		wg.Wait()
@@ -278,7 +278,7 @@ func (s *AlteonService) GetVirtualServers(ctx context.Context, indexes []string)
 	return &models.VirtualServersResponse{VirtualServers: virtualServers}, nil
 }
 
-func (s *AlteonService) buildVirtualServer(ctx context.Context, vs models.SlbStatEnhVServer) models.VirtualServer {
+func (s *AlteonService) buildVirtualServer(ctx context.Context, vs models.SlbStatEnhVServer, withRealServers bool) models.VirtualServer {
 	out := models.VirtualServer{
 		Index:           vs.Index,
 		SessionsPerSec:  vs.SessionsPerSec,
@@ -303,7 +303,7 @@ func (s *AlteonService) buildVirtualServer(ctx context.Context, vs models.SlbSta
 		wg.Add(1)
 		go func(idx int, svc models.SlbEnhVirtServicesInfo) {
 			defer wg.Done()
-			out.Services[idx] = s.buildVirtualService(ctx, svc)
+			out.Services[idx] = s.buildVirtualService(ctx, svc, withRealServers)
 		}(i, svc)
 	}
 	wg.Wait()
@@ -311,7 +311,7 @@ func (s *AlteonService) buildVirtualServer(ctx context.Context, vs models.SlbSta
 	return out
 }
 
-func (s *AlteonService) buildVirtualService(ctx context.Context, svc models.SlbEnhVirtServicesInfo) models.VirtualService {
+func (s *AlteonService) buildVirtualService(ctx context.Context, svc models.SlbEnhVirtServicesInfo, withRealServers bool) models.VirtualService {
 	vsvc := models.VirtualService{
 		VirtServIndex:   svc.VirtServIndex,
 		SvcIndex:        svc.SvcIndex,
@@ -326,6 +326,13 @@ func (s *AlteonService) buildVirtualService(ctx context.Context, svc models.SlbE
 		RtRealHealth:    svc.RtRealHealth,
 		StateFailReason: svc.StateFailReason,
 		RealLogexp:      svc.RealLogexp,
+	}
+
+	// En /virtualservers (withRealServers=false) se omite todo el detalle del
+	// real server: no se consultan SlbEnhStatVirtServiceTable ni
+	// SlbEnhRealServerInfoTable, lo que evita 2 requests por servicio al alteon.
+	if !withRealServers {
+		return vsvc
 	}
 
 	var stats *models.RealServerStats
