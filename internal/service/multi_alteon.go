@@ -220,7 +220,7 @@ func (m *MultiAlteonService) GetAllLicenses(ctx context.Context) ([]models.Licen
 	return collectLicenses(results), collectErrors(errs)
 }
 
-func (m *MultiAlteonService) GetAllVirtualServers(ctx context.Context) ([]models.VirtualServersResponseWrapper, []AlteonError) {
+func (m *MultiAlteonService) GetAllVirtualServers(ctx context.Context, indexes []string) ([]models.VirtualServersResponseWrapper, []AlteonError) {
 	services := m.snapshot()
 	results := make([]*models.VirtualServersResponseWrapper, len(services))
 	errs := make([]*AlteonError, len(services))
@@ -230,7 +230,7 @@ func (m *MultiAlteonService) GetAllVirtualServers(ctx context.Context) ([]models
 		wg.Add(1)
 		go func(idx int, w *AlteonServiceWrapper) {
 			defer wg.Done()
-			data, err := w.Service.GetVirtualServers(ctx)
+			data, err := w.Service.GetVirtualServers(ctx, indexes)
 			if err != nil {
 				m.logError(ctx, "virtualservers", w, err)
 				errs[idx] = &AlteonError{Alteon: w.Name, Error: err.Error()}

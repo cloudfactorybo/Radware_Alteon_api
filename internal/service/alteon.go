@@ -201,7 +201,12 @@ func (s *AlteonService) GetLicenses(ctx context.Context) (*models.LicenseRespons
 	return &models.LicenseResponse{Licenses: combinedLicenses}, nil
 }
 
-func (s *AlteonService) GetVirtualServers(ctx context.Context) (*models.VirtualServersResponse, error) {
+// GetVirtualServers obtiene los virtual servers. Si indexes tiene elementos,
+// solo construye esos (por su Index); vacío = todos. Filtrar es clave para la
+// CPU del Alteon: cada vserver dispara N+1 requests anidados (servicios +
+// stats + info de real server), así que pedir solo los necesarios reduce
+// drásticamente la carga sobre el equipo.
+func (s *AlteonService) GetVirtualServers(ctx context.Context, indexes []string) (*models.VirtualServersResponse, error) {
 	vserverEndpoint := "/config/SlbStatEnhVServerTable?count=2048&props=Index,SessionsPerSec,OctetsPerSec,CurrSessions,TotalSessions,HighestSessions,HCOctets"
 	vserverBody, err := s.makeRequest(ctx, vserverEndpoint)
 	if err != nil {
@@ -213,12 +218,31 @@ func (s *AlteonService) GetVirtualServers(ctx context.Context) (*models.VirtualS
 		return nil, fmt.Errorf("parseando servidores virtuales: %w", err)
 	}
 
-	s.logCtx(ctx).WithField("count", len(vserverResponse.SlbStatEnhVServerTable)).Debug("virtual servers obtenidos")
+	var filter map[string]bool
+	if len(indexes) > 0 {
+		filter = make(map[string]bool, len(indexes))
+		for _, idx := range indexes {
+			filter[idx] = true
+		}
+	}
 
-	virtualServers := make([]models.VirtualServer, len(vserverResponse.SlbStatEnhVServerTable))
+	selected := make([]models.SlbStatEnhVServer, 0, len(vserverResponse.SlbStatEnhVServerTable))
+	for _, vs := range vserverResponse.SlbStatEnhVServerTable {
+		if filter == nil || filter[vs.Index] {
+			selected = append(selected, vs)
+		}
+	}
+
+	s.logCtx(ctx).WithFields(logrus.Fields{
+		"total":    len(vserverResponse.SlbStatEnhVServerTable),
+		"selected": len(selected),
+		"filtered": filter != nil,
+	}).Debug("virtual servers obtenidos")
+
+	virtualServers := make([]models.VirtualServer, len(selected))
 
 	var wg sync.WaitGroup
-	for i, vserver := range vserverResponse.SlbStatEnhVServerTable {
+	for i, vserver := range selected {
 		wg.Add(1)
 		go func(idx int, vs models.SlbStatEnhVServer) {
 			defer wg.Done()
