@@ -311,6 +311,154 @@ func (m *MultiAlteonService) GetAllServiceMaps(ctx context.Context) ([]models.Se
 	return collectServiceMaps(results), collectErrors(errs)
 }
 
+func (m *MultiAlteonService) GetAllGateways(ctx context.Context) ([]models.GatewaysResponseWrapper, []AlteonError) {
+	services := m.snapshot()
+	results := make([]*models.GatewaysResponseWrapper, len(services))
+	errs := make([]*AlteonError, len(services))
+
+	var wg sync.WaitGroup
+	for i, w := range services {
+		wg.Add(1)
+		go func(idx int, w *AlteonServiceWrapper) {
+			defer wg.Done()
+			data, err := w.Service.GetGateways(ctx)
+			if err != nil {
+				m.logError(ctx, "gateways", w, err)
+				errs[idx] = &AlteonError{Alteon: w.Name, Error: err.Error()}
+				return
+			}
+			results[idx] = &models.GatewaysResponseWrapper{
+				AlteonName: w.Name,
+				AlteonURL:  w.URL,
+				AlteonIP:   w.IP,
+				Metric:     data.Metric,
+				MetricName: data.MetricName,
+				Gateways:   data.Gateways,
+				Interfaces: data.Interfaces,
+			}
+		}(i, w)
+	}
+	wg.Wait()
+
+	return collectGateways(results), collectErrors(errs)
+}
+
+func (m *MultiAlteonService) GetAllSmartNat(ctx context.Context) ([]models.SmartNatResponseWrapper, []AlteonError) {
+	services := m.snapshot()
+	results := make([]*models.SmartNatResponseWrapper, len(services))
+	errs := make([]*AlteonError, len(services))
+
+	var wg sync.WaitGroup
+	for i, w := range services {
+		wg.Add(1)
+		go func(idx int, w *AlteonServiceWrapper) {
+			defer wg.Done()
+			data, err := w.Service.GetSmartNat(ctx)
+			if err != nil {
+				m.logError(ctx, "smartnat", w, err)
+				errs[idx] = &AlteonError{Alteon: w.Name, Error: err.Error()}
+				return
+			}
+			results[idx] = &models.SmartNatResponseWrapper{
+				AlteonName: w.Name,
+				AlteonURL:  w.URL,
+				AlteonIP:   w.IP,
+				Entries:    data.Entries,
+			}
+		}(i, w)
+	}
+	wg.Wait()
+
+	out := []models.SmartNatResponseWrapper{}
+	for _, r := range results {
+		if r != nil {
+			out = append(out, *r)
+		}
+	}
+	return out, collectErrors(errs)
+}
+
+func (m *MultiAlteonService) GetAllWanLinkGroups(ctx context.Context) ([]models.WanLinkGroupsResponseWrapper, []AlteonError) {
+	services := m.snapshot()
+	results := make([]*models.WanLinkGroupsResponseWrapper, len(services))
+	errs := make([]*AlteonError, len(services))
+
+	var wg sync.WaitGroup
+	for i, w := range services {
+		wg.Add(1)
+		go func(idx int, w *AlteonServiceWrapper) {
+			defer wg.Done()
+			data, err := w.Service.GetWanLinkGroups(ctx)
+			if err != nil {
+				m.logError(ctx, "wanlinkgroups", w, err)
+				errs[idx] = &AlteonError{Alteon: w.Name, Error: err.Error()}
+				return
+			}
+			results[idx] = &models.WanLinkGroupsResponseWrapper{
+				AlteonName: w.Name,
+				AlteonURL:  w.URL,
+				AlteonIP:   w.IP,
+				Groups:     data.Groups,
+			}
+		}(i, w)
+	}
+	wg.Wait()
+
+	out := []models.WanLinkGroupsResponseWrapper{}
+	for _, r := range results {
+		if r != nil {
+			out = append(out, *r)
+		}
+	}
+	return out, collectErrors(errs)
+}
+
+func (m *MultiAlteonService) GetAllWanLinks(ctx context.Context) ([]models.WanLinksResponseWrapper, []AlteonError) {
+	services := m.snapshot()
+	results := make([]*models.WanLinksResponseWrapper, len(services))
+	errs := make([]*AlteonError, len(services))
+
+	var wg sync.WaitGroup
+	for i, w := range services {
+		wg.Add(1)
+		go func(idx int, w *AlteonServiceWrapper) {
+			defer wg.Done()
+			data, err := w.Service.GetWanLinks(ctx)
+			if err != nil {
+				m.logError(ctx, "wanlinks", w, err)
+				errs[idx] = &AlteonError{Alteon: w.Name, Error: err.Error()}
+				return
+			}
+			results[idx] = &models.WanLinksResponseWrapper{
+				AlteonName: w.Name,
+				AlteonURL:  w.URL,
+				AlteonIP:   w.IP,
+				PerId:      data.PerId,
+				PerIp:      data.PerIp,
+			}
+		}(i, w)
+	}
+	wg.Wait()
+
+	out := []models.WanLinksResponseWrapper{}
+	for _, r := range results {
+		if r != nil {
+			out = append(out, *r)
+		}
+	}
+	return out, collectErrors(errs)
+}
+
+func collectGateways(src []*models.GatewaysResponseWrapper) []models.GatewaysResponseWrapper {
+	out := []models.GatewaysResponseWrapper{}
+	for _, r := range src {
+		if r != nil {
+			out = append(out, *r)
+		}
+	}
+	return out
+}
+
 func collectErrors(src []*AlteonError) []AlteonError {
 	out := []AlteonError{}
 	for _, e := range src {

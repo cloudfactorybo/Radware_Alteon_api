@@ -55,6 +55,8 @@ type CPUMemoryStatsResponse struct {
 	SystemMemStatsInitConfigMemory int `json:"systemMemStatsInitConfigMemory"`
 	SystemMemStatsSafetyMargin1    int `json:"systemMemStatsSafetyMargin1"`
 	SystemMemStatsSafetyMargin2    int `json:"systemMemStatsSafetyMargin2"`
+	MpMemStatsTotal                int `json:"mpMemStatsTotal"`
+	MpMemStatsFree                 int `json:"mpMemStatsFree"`
 }
 
 type SpMemUseStatsTableResponse struct {

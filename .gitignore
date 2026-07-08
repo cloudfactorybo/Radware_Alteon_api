@@ -1,0 +1,27 @@
+# Binario compilado
+/alteon-api
+alteon-api.exe
+
+# Variables de entorno reales (mantener solo .env.example)
+.env
+.env.local
+*.env
+!.env.example
+
+# Certificados / claves privadas TLS (NUNCA versionar)
+traefik/certs/*.pem
+traefik/certs/*.key
+traefik/certs/*.crt
+*.pem
+*.key
+
+# Go
+/vendor/
+*.test
+*.out
+
+# Editor / SO
+.DS_Store
+.idea/
+.vscode/
+*.swp

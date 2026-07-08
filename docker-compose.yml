@@ -27,7 +27,7 @@ services:
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ${REDIS_PASSWORD:+-a ${REDIS_PASSWORD}} ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -53,6 +53,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - internal
     labels:
@@ -84,7 +90,8 @@ services:
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
       - ./traefik/certs:/etc/traefik/certs:ro
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     networks:
       - internal
 

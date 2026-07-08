@@ -395,7 +395,7 @@ func (s *AlteonService) getRealServerInfo(ctx context.Context, realServIndex str
 }
 
 func (s *AlteonService) GetMonitoring(ctx context.Context) (*models.MonitoringResponse, error) {
-	cpuMemEndpoint := "/config?prop=mpCpuStatsUtil1Second,mpCpuStatsUtil4Seconds,mpCpuStatsUtil64Seconds,systemMemStatsTotalMemory,systemMemStatsInitConfigMemory,systemMemStatsSafetyMargin1,systemMemStatsSafetyMargin2"
+	cpuMemEndpoint := "/config?prop=mpCpuStatsUtil1Second,mpCpuStatsUtil4Seconds,mpCpuStatsUtil64Seconds,systemMemStatsTotalMemory,systemMemStatsInitConfigMemory,systemMemStatsSafetyMargin1,systemMemStatsSafetyMargin2,mpMemStatsTotal,mpMemStatsFree"
 	cpuMemBody, err := s.makeRequest(ctx, cpuMemEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("obteniendo estadísticas de CPU y memoria: %w", err)
@@ -423,15 +423,19 @@ func (s *AlteonService) GetMonitoring(ctx context.Context) (*models.MonitoringRe
 		Util64Seconds: cpuMemStats.MpCpuStatsUtil64Seconds,
 	}
 
-	usedMemory := cpuMemStats.SystemMemStatsInitConfigMemory
-	availableMemory := cpuMemStats.SystemMemStatsTotalMemory - usedMemory
+	// Uso real de RAM: mpMemStatsTotal/Free vienen en KB; el resto del shape
+	// (totalMemory, usedMemory, availableMemory) se expone en MB.
+	totalMB := cpuMemStats.MpMemStatsTotal / 1024
+	freeMB := cpuMemStats.MpMemStatsFree / 1024
+	usedMemory := totalMB - freeMB
+	availableMemory := freeMB
 	usagePercentage := 0.0
-	if cpuMemStats.SystemMemStatsTotalMemory > 0 {
-		usagePercentage = (float64(usedMemory) / float64(cpuMemStats.SystemMemStatsTotalMemory)) * 100
+	if totalMB > 0 {
+		usagePercentage = (float64(usedMemory) / float64(totalMB)) * 100
 	}
 
 	memory := models.MemoryStats{
-		TotalMemory:      cpuMemStats.SystemMemStatsTotalMemory,
+		TotalMemory:      totalMB,
 		InitConfigMemory: cpuMemStats.SystemMemStatsInitConfigMemory,
 		SafetyMargin1:    cpuMemStats.SystemMemStatsSafetyMargin1,
 		SafetyMargin2:    cpuMemStats.SystemMemStatsSafetyMargin2,
@@ -463,6 +467,267 @@ func (s *AlteonService) GetMonitoring(ctx context.Context) (*models.MonitoringRe
 		Memory: memory,
 		Cores:  cores,
 	}, nil
+}
+
+func (s *AlteonService) GetGateways(ctx context.Context) (*models.GatewaysResponse, error) {
+	gwBody, err := s.makeRequest(ctx, "/config/IpCurCfgGwTable")
+	if err != nil {
+		return nil, fmt.Errorf("obteniendo gateways: %w", err)
+	}
+
+	var gwResp models.IpCurCfgGwTableResponse
+	if err := json.Unmarshal(gwBody, &gwResp); err != nil {
+		return nil, fmt.Errorf("parseando gateways: %w", err)
+	}
+
+	metric := 0
+	metricBody, err := s.makeRequest(ctx, "/config?prop=ipCurCfgGwMetric")
+	if err != nil {
+		s.logCtx(ctx).WithError(err).Warn("métrica de gateways falló")
+	} else {
+		var metricResp models.IpCurCfgGwMetricResponse
+		if err := json.Unmarshal(metricBody, &metricResp); err != nil {
+			s.logCtx(ctx).WithError(err).Warn("parseando métrica de gateways")
+		} else {
+			metric = metricResp.IpCurCfgGwMetric
+		}
+	}
+
+	gateways := make([]models.Gateway, 0, len(gwResp.IpCurCfgGwTable))
+	for _, gw := range gwResp.IpCurCfgGwTable {
+		gateways = append(gateways, models.Gateway{
+			Index:     gw.Index,
+			Addr:      strings.TrimSpace(gw.Addr),
+			Ipv6Addr:  strings.TrimSpace(gw.Ipv6Addr),
+			IpVer:     gw.IpVer,
+			Interval:  gw.Interval,
+			Retry:     gw.Retry,
+			State:     gw.State,
+			StateName: getGatewayStateName(gw.State),
+			Arp:       gw.Arp,
+			ArpName:   getGatewayArpName(gw.Arp),
+			Vlan:      gw.Vlan,
+			Priority:  gw.Priority,
+		})
+	}
+
+	interfaces, err := s.getInterfaces(ctx)
+	if err != nil {
+		s.logCtx(ctx).WithError(err).Warn("interfaces fallaron")
+		interfaces = []models.Interface{}
+	}
+
+	return &models.GatewaysResponse{
+		Metric:     metric,
+		MetricName: getGatewayMetricName(metric),
+		Gateways:   gateways,
+		Interfaces: interfaces,
+	}, nil
+}
+
+func (s *AlteonService) getInterfaces(ctx context.Context) ([]models.Interface, error) {
+	body, err := s.makeRequest(ctx, "/config/IpCurCfgIntfTable?count=256")
+	if err != nil {
+		return nil, err
+	}
+
+	var resp models.IpCurCfgIntfTableResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parseando interfaces: %w", err)
+	}
+
+	interfaces := make([]models.Interface, 0, len(resp.IpCurCfgIntfTable))
+	for _, intf := range resp.IpCurCfgIntfTable {
+		peer := strings.TrimSpace(intf.Peer)
+		if peer == "0.0.0.0" {
+			peer = ""
+		}
+		interfaces = append(interfaces, models.Interface{
+			Index:       intf.Index,
+			Addr:        strings.TrimSpace(intf.Addr),
+			Mask:        strings.TrimSpace(intf.Mask),
+			Vlan:        intf.Vlan,
+			State:       intf.State,
+			StateName:   getInterfaceStateName(intf.State),
+			Peer:        peer,
+			Description: strings.TrimSpace(intf.Description),
+			IpVer:       intf.IpVer,
+		})
+	}
+	return interfaces, nil
+}
+
+func (s *AlteonService) GetSmartNat(ctx context.Context) (*models.SmartNatResponse, error) {
+	body, err := s.makeRequest(ctx, "/config/SlbCurCfgSmartNatTable?count=512")
+	if err != nil {
+		return nil, fmt.Errorf("obteniendo smart nat: %w", err)
+	}
+
+	var resp models.SlbCurCfgSmartNatTableResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parseando smart nat: %w", err)
+	}
+
+	statByID := map[string]models.AlteonSmartNatStat{}
+	statBody, err := s.makeRequest(ctx, "/config/SlbStatLinkpfSmartNATTable?count=512")
+	if err != nil {
+		s.logCtx(ctx).WithError(err).Warn("sesiones de smart nat fallaron")
+	} else {
+		var statResp models.SlbStatLinkpfSmartNATTableResponse
+		if err := json.Unmarshal(statBody, &statResp); err != nil {
+			s.logCtx(ctx).WithError(err).Warn("parseando sesiones de smart nat")
+		} else {
+			for _, st := range statResp.SlbStatLinkpfSmartNATTable {
+				statByID[st.NATIndex] = st
+			}
+		}
+	}
+
+	entries := make([]models.SmartNatRule, 0, len(resp.SlbCurCfgSmartNatTable))
+	seen := map[string]bool{}
+	for _, e := range resp.SlbCurCfgSmartNatTable {
+		id := strings.TrimSpace(e.Index)
+		seen[id] = true
+		rule := models.SmartNatRule{
+			ID:          id,
+			Type:        e.Type,
+			LocalIp:     strings.TrimSpace(e.LocalIpV4),
+			LocalMask:   strings.TrimSpace(e.LocalIpV4Mask),
+			DnatIp:      strings.TrimSpace(e.DnatIpV4),
+			DnatMask:    strings.TrimSpace(e.DnatIpV4Mask),
+			WanLink:     strings.TrimSpace(e.WanLink),
+			DnatPersist: e.DnatPersist,
+		}
+		if st, ok := statByID[id]; ok {
+			rule.CurrSessions = st.NATCurrSess
+			rule.TotalSessions = st.NATTotSess
+		}
+		entries = append(entries, rule)
+	}
+	// Filas de estadística sin config (p.ej. NAT dinámico).
+	for _, st := range statByID {
+		if seen[st.NATIndex] {
+			continue
+		}
+		entries = append(entries, models.SmartNatRule{
+			ID:            st.NATIndex,
+			Type:          st.NATType,
+			CurrSessions:  st.NATCurrSess,
+			TotalSessions: st.NATTotSess,
+		})
+	}
+	return &models.SmartNatResponse{Entries: entries}, nil
+}
+
+func (s *AlteonService) GetWanLinkGroups(ctx context.Context) (*models.WanLinkGroupsResponse, error) {
+	statBody, err := s.makeRequest(ctx, "/config/SlbStatEnhGroupTable?count=256")
+	if err != nil {
+		return nil, fmt.Errorf("obteniendo wan link groups: %w", err)
+	}
+
+	var statResp models.SlbStatEnhGroupTableResponse
+	if err := json.Unmarshal(statBody, &statResp); err != nil {
+		return nil, fmt.Errorf("parseando wan link groups: %w", err)
+	}
+
+	cfgByIndex := map[string]models.AlteonEnhGroupCfg{}
+	cfgBody, err := s.makeRequest(ctx, "/config/SlbCurCfgEnhGroupTable?count=256")
+	if err != nil {
+		s.logCtx(ctx).WithError(err).Warn("config de wan link groups falló")
+	} else {
+		var cfgResp models.SlbCurCfgEnhGroupTableResponse
+		if err := json.Unmarshal(cfgBody, &cfgResp); err != nil {
+			s.logCtx(ctx).WithError(err).Warn("parseando config de wan link groups")
+		} else {
+			for _, c := range cfgResp.SlbCurCfgEnhGroupTable {
+				cfgByIndex[c.Index] = c
+			}
+		}
+	}
+
+	groups := make([]models.WanLinkGroup, 0, len(statResp.SlbStatEnhGroupTable))
+	for _, g := range statResp.SlbStatEnhGroupTable {
+		group := models.WanLinkGroup{
+			ID:              strings.TrimSpace(g.Index),
+			CurrSessions:    g.CurrSessions,
+			TotalSessions:   g.TotalSessions,
+			HighestSessions: g.HighestSessions,
+			HCOctets:        g.HCOctets,
+			TotalMB:         float64(g.HCOctets) / (1024 * 1024),
+		}
+		if cfg, ok := cfgByIndex[g.Index]; ok {
+			group.Metric = cfg.Metric
+			group.MetricName = getGroupMetricName(cfg.Metric)
+			group.BackupServer = strings.TrimSpace(cfg.BackupServer)
+		}
+		groups = append(groups, group)
+	}
+	return &models.WanLinkGroupsResponse{Groups: groups}, nil
+}
+
+func (s *AlteonService) GetWanLinks(ctx context.Context) (*models.WanLinksResponse, error) {
+	idBody, err := s.makeRequest(ctx, "/config/SlbStatLinkpfRServerTable?count=256")
+	if err != nil {
+		return nil, fmt.Errorf("obteniendo wan links (per id): %w", err)
+	}
+	var idResp models.SlbStatLinkpfRServerTableResponse
+	if err := json.Unmarshal(idBody, &idResp); err != nil {
+		return nil, fmt.Errorf("parseando wan links (per id): %w", err)
+	}
+
+	perId := make([]models.WanLink, 0, len(idResp.SlbStatLinkpfRServerTable))
+	for _, l := range idResp.SlbStatLinkpfRServerTable {
+		perId = append(perId, models.WanLink{
+			ID:           strings.TrimSpace(l.Index),
+			IpAddr:       strings.TrimSpace(l.IpAddr),
+			State:        l.State,
+			StateName:    getRealStatusName(l.State),
+			CurrSessions: l.CurrSess,
+			UpBwCurr:     strings.TrimSpace(l.UpBwCurr),
+			UpBwUsage:    strings.TrimSpace(l.UpBwUsage),
+			DnBwCurr:     strings.TrimSpace(l.DwBwCurr),
+			DnBwUsage:    strings.TrimSpace(l.DwBwUSage),
+			TotBwCurr:    strings.TrimSpace(l.TotCurrbw),
+			TotBwUsage:   strings.TrimSpace(l.TotCurrUsage),
+			UpBwPeak:     strings.TrimSpace(l.UpBwPeak),
+			DnBwPeak:     strings.TrimSpace(l.DnBwPeak),
+			TotBwPeak:    strings.TrimSpace(l.TotBwPeak),
+			UpBwTot:      strings.TrimSpace(l.UpBwTot),
+			DnBwTot:      strings.TrimSpace(l.DnBwTot),
+			UpDnBwTot:    strings.TrimSpace(l.UpDnBwTot),
+		})
+	}
+
+	ipBody, err := s.makeRequest(ctx, "/config/SlbStatLinkpfIpTable?count=256")
+	if err != nil {
+		return nil, fmt.Errorf("obteniendo wan links (per ip): %w", err)
+	}
+	var ipResp models.SlbStatLinkpfIpTableResponse
+	if err := json.Unmarshal(ipBody, &ipResp); err != nil {
+		return nil, fmt.Errorf("parseando wan links (per ip): %w", err)
+	}
+
+	perIp := make([]models.WanLink, 0, len(ipResp.SlbStatLinkpfIpTable))
+	for _, l := range ipResp.SlbStatLinkpfIpTable {
+		perIp = append(perIp, models.WanLink{
+			ID:           strings.TrimSpace(l.Index),
+			CurrSessions: l.CurrSessions,
+			UpBwCurr:     strings.TrimSpace(l.UpBwCurr),
+			UpBwUsage:    strings.TrimSpace(l.UpBwCurrUsage),
+			DnBwCurr:     strings.TrimSpace(l.DnBwCurr),
+			DnBwUsage:    strings.TrimSpace(l.DnBwCurrUsage),
+			TotBwCurr:    strings.TrimSpace(l.TotBwCurr),
+			TotBwUsage:   strings.TrimSpace(l.TotBwCurrUsage),
+			UpBwPeak:     strings.TrimSpace(l.UpBwPeak),
+			DnBwPeak:     strings.TrimSpace(l.DnBwPeak),
+			TotBwPeak:    strings.TrimSpace(l.TotBwPeak),
+			UpBwTot:      strings.TrimSpace(l.UpBwTot),
+			DnBwTot:      strings.TrimSpace(l.DnBwTot),
+			UpDnBwTot:    strings.TrimSpace(l.UpDnBwTot),
+		})
+	}
+
+	return &models.WanLinksResponse{PerId: perId, PerIp: perIp}, nil
 }
 
 func (s *AlteonService) GetServiceMap(ctx context.Context) (*models.ServiceMapResponse, error) {
@@ -564,6 +829,70 @@ func getRealStatusName(status int) string {
 		4: "Blocked",
 	}
 	if name, exists := statusNames[status]; exists {
+		return name
+	}
+	return "Unknown"
+}
+
+// Enums best-effort para gateways. El REST del vADC no documenta el enum, así que
+// se expone también el entero crudo (State/Arp/Metric) por si el nombre no aplica.
+func getGatewayStateName(state int) string {
+	names := map[int]string{
+		2: "Enabled",
+		3: "Disabled",
+	}
+	if name, ok := names[state]; ok {
+		return name
+	}
+	return "Unknown"
+}
+
+func getGatewayArpName(arp int) string {
+	names := map[int]string{
+		2: "Enabled",
+		3: "Disabled",
+	}
+	if name, ok := names[arp]; ok {
+		return name
+	}
+	return "Unknown"
+}
+
+func getGatewayMetricName(metric int) string {
+	names := map[int]string{
+		1: "roundRobin",
+		2: "minMisses",
+		3: "strict",
+	}
+	if name, ok := names[metric]; ok {
+		return name
+	}
+	return "Unknown"
+}
+
+// Best-effort: enum del metric de grupo SLB. Se expone también el entero crudo.
+func getGroupMetricName(metric int) string {
+	names := map[int]string{
+		1: "roundRobin",
+		2: "leastConnections",
+		3: "minMisses",
+		4: "hash",
+		5: "responseTime",
+		6: "bandwidth",
+		7: "phash",
+	}
+	if name, ok := names[metric]; ok {
+		return name
+	}
+	return "Unknown"
+}
+
+func getInterfaceStateName(state int) string {
+	names := map[int]string{
+		2: "Enabled",
+		3: "Disabled",
+	}
+	if name, ok := names[state]; ok {
 		return name
 	}
 	return "Unknown"

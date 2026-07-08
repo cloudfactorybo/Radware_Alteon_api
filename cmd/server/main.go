@@ -98,6 +98,8 @@ func main() {
 	vserverHandler := handler.NewVirtualServerHandler(multi, logger)
 	monitoringHandler := handler.NewMonitoringHandler(multi, logger)
 	serviceMapHandler := handler.NewServiceMapHandler(multi, logger)
+	gatewayHandler := handler.NewGatewayHandler(multi, logger)
+	wanLinkHandler := handler.NewWanLinkHandler(multi, logger)
 
 	r := mux.NewRouter()
 	r.Use(middleware.LoggingMiddleware(logger))
@@ -118,6 +120,10 @@ func main() {
 	v1.HandleFunc("/virtualservers", vserverHandler.GetVirtualServers).Methods(http.MethodGet)
 	v1.HandleFunc("/monitoring", monitoringHandler.GetMonitoring).Methods(http.MethodGet)
 	v1.HandleFunc("/servicemap", serviceMapHandler.GetServiceMap).Methods(http.MethodGet)
+	v1.HandleFunc("/gateways", gatewayHandler.GetGateways).Methods(http.MethodGet)
+	v1.HandleFunc("/smartnat", wanLinkHandler.GetSmartNat).Methods(http.MethodGet)
+	v1.HandleFunc("/wanlinkgroups", wanLinkHandler.GetWanLinkGroups).Methods(http.MethodGet)
+	v1.HandleFunc("/wanlinks", wanLinkHandler.GetWanLinks).Methods(http.MethodGet)
 
 	addr := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
