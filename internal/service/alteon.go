@@ -202,7 +202,7 @@ func (s *AlteonService) GetLicenses(ctx context.Context) (*models.LicenseRespons
 }
 
 func (s *AlteonService) GetVirtualServers(ctx context.Context) (*models.VirtualServersResponse, error) {
-	vserverEndpoint := "/config/SlbStatEnhVServerTable?count=50&props=Index,SessionsPerSec,OctetsPerSec,CurrSessions,TotalSessions,HighestSessions,HCOctets"
+	vserverEndpoint := "/config/SlbStatEnhVServerTable?count=2048&props=Index,SessionsPerSec,OctetsPerSec,CurrSessions,TotalSessions,HighestSessions,HCOctets"
 	vserverBody, err := s.makeRequest(ctx, vserverEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("obteniendo servidores virtuales: %w", err)
