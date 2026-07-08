@@ -20,6 +20,8 @@ import (
 const (
 	maxConcurrentRequests = 8                // por alteon
 	statsTTL              = 15 * time.Second // cache para stats/realserver info
+	servicesTTL           = 1 * time.Hour    // cache para la lista de servicios de cada vserver
+	vserverBatchSize      = 10               // vservers procesados por lote (throttle al alteon)
 )
 
 type AlteonService struct {
@@ -241,15 +243,37 @@ func (s *AlteonService) GetVirtualServers(ctx context.Context, indexes []string)
 
 	virtualServers := make([]models.VirtualServer, len(selected))
 
-	var wg sync.WaitGroup
-	for i, vserver := range selected {
-		wg.Add(1)
-		go func(idx int, vs models.SlbStatEnhVServer) {
-			defer wg.Done()
-			virtualServers[idx] = s.buildVirtualServer(ctx, vs)
-		}(i, vserver)
+	// Paginación interna: se procesan en lotes de vserverBatchSize (10). Se espera
+	// a que termine cada lote antes de empezar el siguiente, para no disparar todos
+	// los requests anidados a la vez y así limitar la carga sobre la CPU del alteon.
+	for start := 0; start < len(selected); start += vserverBatchSize {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		end := start + vserverBatchSize
+		if end > len(selected) {
+			end = len(selected)
+		}
+
+		var wg sync.WaitGroup
+		for i := start; i < end; i++ {
+			wg.Add(1)
+			go func(idx int, vs models.SlbStatEnhVServer) {
+				defer wg.Done()
+				virtualServers[idx] = s.buildVirtualServer(ctx, vs)
+			}(i, selected[i])
+		}
+		wg.Wait()
+
+		s.logCtx(ctx).WithFields(logrus.Fields{
+			"lote_desde": start,
+			"lote_hasta": end,
+			"total":      len(selected),
+		}).Debug("lote de virtual servers procesado")
 	}
-	wg.Wait()
 
 	return &models.VirtualServersResponse{VirtualServers: virtualServers}, nil
 }
@@ -343,7 +367,7 @@ func (s *AlteonService) buildVirtualService(ctx context.Context, svc models.SlbE
 
 func (s *AlteonService) getVirtualServerServices(ctx context.Context, vserverIndex string) ([]models.SlbEnhVirtServicesInfo, error) {
 	endpoint := fmt.Sprintf("/config/SlbEnhVirtServicesInfoTable/%s/", vserverIndex)
-	body, err := s.makeRequestCached(ctx, endpoint, statsTTL)
+	body, err := s.makeRequestCached(ctx, endpoint, servicesTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -441,6 +465,24 @@ func (s *AlteonService) GetMonitoring(ctx context.Context) (*models.MonitoringRe
 		return nil, fmt.Errorf("parseando estadísticas de memoria por core: %w", err)
 	}
 
+	// CPU por core (SpStatsCpuUtilTable). Se une a la memoria por índice de SP.
+	// Es best-effort: si falla, los cores quedan sin CPU pero el resto responde.
+	cpuByCore := map[int]models.SpStatsCpuUtil{}
+	cpuCoreEndpoint := "/config/SpStatsCpuUtilTable?count=50&props=SpIndex,Util1Second,Util4Seconds,Util64Seconds"
+	cpuCoreBody, err := s.makeRequest(ctx, cpuCoreEndpoint)
+	if err != nil {
+		s.logCtx(ctx).WithError(err).Warn("CPU por core falló")
+	} else {
+		var cpuCoreStats models.SpStatsCpuUtilTableResponse
+		if err := json.Unmarshal(cpuCoreBody, &cpuCoreStats); err != nil {
+			s.logCtx(ctx).WithError(err).Warn("parseando CPU por core")
+		} else {
+			for _, c := range cpuCoreStats.SpStatsCpuUtilTable {
+				cpuByCore[c.SpIndex] = c
+			}
+		}
+	}
+
 	cpu := models.CPUStats{
 		Util1Second:   cpuMemStats.MpCpuStatsUtil1Second,
 		Util4Seconds:  cpuMemStats.MpCpuStatsUtil4Seconds,
@@ -470,7 +512,7 @@ func (s *AlteonService) GetMonitoring(ctx context.Context) (*models.MonitoringRe
 
 	cores := []models.CoreMemory{}
 	for _, core := range memCoreStats.SpMemUseStatsTable {
-		cores = append(cores, models.CoreMemory{
+		cm := models.CoreMemory{
 			Index:                       core.Index,
 			InitSizeTo1Margin:           core.InitSizeTo1Margin,
 			InitSizeTo2Margin:           core.InitSizeTo2Margin,
@@ -483,7 +525,13 @@ func (s *AlteonService) GetMonitoring(ctx context.Context) (*models.MonitoringRe
 			MemPressActiveTime:          core.MemPressActiveTime,
 			MemUseFrom1stMargin:         core.MemUseFrom1stMargin,
 			PeakUsageFrom1stMargin:      core.PeakUsageFrom1stMargin,
-		})
+		}
+		if cu, ok := cpuByCore[core.Index]; ok {
+			cm.Util1Second = cu.Util1Second
+			cm.Util4Seconds = cu.Util4Seconds
+			cm.Util64Seconds = cu.Util64Seconds
+		}
+		cores = append(cores, cm)
 	}
 
 	return &models.MonitoringResponse{

@@ -44,6 +44,10 @@ type CoreMemory struct {
 	MemPressActiveTime          int `json:"memPressActiveTime"`
 	MemUseFrom1stMargin         int `json:"memUseFrom1stMargin"`
 	PeakUsageFrom1stMargin      int `json:"peakUsageFrom1stMargin"`
+	// Uso de CPU por core (SpStatsCpuUtilTable, unido por índice de SP)
+	Util1Second   int `json:"util1Second"`
+	Util4Seconds  int `json:"util4Seconds"`
+	Util64Seconds int `json:"util64Seconds"`
 }
 
 // Estructuras para las respuestas de Alteon
@@ -76,4 +80,16 @@ type SpMemUseStats struct {
 	MemPressActiveTime          int `json:"MemPressActiveTime"`
 	MemUseFrom1stMargin         int `json:"MemUseFrom1stMargin"`
 	PeakUsageFrom1stMargin      int `json:"PeakUsageFrom1stMargin"`
+}
+
+// CPU por core (String Processors). Se une a CoreMemory por SpIndex == Index.
+type SpStatsCpuUtilTableResponse struct {
+	SpStatsCpuUtilTable []SpStatsCpuUtil `json:"SpStatsCpuUtilTable"`
+}
+
+type SpStatsCpuUtil struct {
+	SpIndex       int `json:"SpIndex"`
+	Util1Second   int `json:"Util1Second"`
+	Util4Seconds  int `json:"Util4Seconds"`
+	Util64Seconds int `json:"Util64Seconds"`
 }
