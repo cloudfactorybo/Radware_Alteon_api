@@ -512,42 +512,21 @@ func (s *AlteonService) GetMonitoring(ctx context.Context) (*models.MonitoringRe
 		Util64Seconds: cpuMemStats.MpCpuStatsUtil64Seconds,
 	}
 
-	// Uso real de RAM: mpMemStatsTotal/Free vienen en KB; el resto del shape
-	// (totalMemory, usedMemory, availableMemory) se expone en MB.
+	// Total de RAM: mpMemStatsTotal viene en KB, se expone en MB. El uso real
+	// se ve por core en memUseFrom1stMargin (mpMemStatsFree daría ~99%, que no
+	// es el uso real contra el margen de seguridad).
 	totalMB := cpuMemStats.MpMemStatsTotal / 1024
-	freeMB := cpuMemStats.MpMemStatsFree / 1024
-	usedMemory := totalMB - freeMB
-	availableMemory := freeMB
-	usagePercentage := 0.0
-	if totalMB > 0 {
-		usagePercentage = (float64(usedMemory) / float64(totalMB)) * 100
-	}
 
 	memory := models.MemoryStats{
-		TotalMemory:      totalMB,
-		InitConfigMemory: cpuMemStats.SystemMemStatsInitConfigMemory,
-		SafetyMargin1:    cpuMemStats.SystemMemStatsSafetyMargin1,
-		SafetyMargin2:    cpuMemStats.SystemMemStatsSafetyMargin2,
-		UsedMemory:       usedMemory,
-		AvailableMemory:  availableMemory,
-		UsagePercentage:  usagePercentage,
+		TotalMemory: totalMB,
 	}
 
 	cores := []models.CoreMemory{}
 	for _, core := range memCoreStats.SpMemUseStatsTable {
 		cm := models.CoreMemory{
-			Index:                       core.Index,
-			InitSizeTo1Margin:           core.InitSizeTo1Margin,
-			InitSizeTo2Margin:           core.InitSizeTo2Margin,
-			CurProcSize:                 core.CurProcSize,
-			CurProcCacheRelativeSize:    core.CurProcCacheRelativeSize,
-			CurProcDynCertRelativeSize:  core.CurProcDynCertRelativeSize,
-			CurExtraProcessRelativeSize: core.CurExtraProcessRelativeSize,
-			CurQatSlabsRelativeSize:     core.CurQatSlabsRelativeSize,
-			MemPressStat:                core.MemPressStat,
-			MemPressActiveTime:          core.MemPressActiveTime,
-			MemUseFrom1stMargin:         core.MemUseFrom1stMargin,
-			PeakUsageFrom1stMargin:      core.PeakUsageFrom1stMargin,
+			Index:                  core.Index,
+			MemUseFrom1stMargin:    core.MemUseFrom1stMargin,
+			PeakUsageFrom1stMargin: core.PeakUsageFrom1stMargin,
 		}
 		if cu, ok := cpuByCore[core.Index]; ok {
 			cm.Util1Second = cu.Util1Second

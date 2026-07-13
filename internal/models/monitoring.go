@@ -22,28 +22,13 @@ type CPUStats struct {
 }
 
 type MemoryStats struct {
-	TotalMemory      int     `json:"totalMemory"`
-	InitConfigMemory int     `json:"initConfigMemory"`
-	SafetyMargin1    int     `json:"safetyMargin1"`
-	SafetyMargin2    int     `json:"safetyMargin2"`
-	UsedMemory       int     `json:"usedMemory"`
-	AvailableMemory  int     `json:"availableMemory"`
-	UsagePercentage  float64 `json:"usagePercentage"`
+	TotalMemory int `json:"totalMemory"`
 }
 
 type CoreMemory struct {
-	Index                       int `json:"index"`
-	InitSizeTo1Margin           int `json:"initSizeTo1Margin"`
-	InitSizeTo2Margin           int `json:"initSizeTo2Margin"`
-	CurProcSize                 int `json:"curProcSize"`
-	CurProcCacheRelativeSize    int `json:"curProcCacheRelativeSize"`
-	CurProcDynCertRelativeSize  int `json:"curProcDynCertRelativeSize"`
-	CurExtraProcessRelativeSize int `json:"curExtraProcessRelativeSize"`
-	CurQatSlabsRelativeSize     int `json:"curQatSlabsRelativeSize"`
-	MemPressStat                int `json:"memPressStat"`
-	MemPressActiveTime          int `json:"memPressActiveTime"`
-	MemUseFrom1stMargin         int `json:"memUseFrom1stMargin"`
-	PeakUsageFrom1stMargin      int `json:"peakUsageFrom1stMargin"`
+	Index                  int `json:"index"`
+	MemUseFrom1stMargin    int `json:"memUseFrom1stMargin"`
+	PeakUsageFrom1stMargin int `json:"peakUsageFrom1stMargin"`
 	// Uso de CPU por core (SpStatsCpuUtilTable, unido por índice de SP)
 	Util1Second   int `json:"util1Second"`
 	Util4Seconds  int `json:"util4Seconds"`
